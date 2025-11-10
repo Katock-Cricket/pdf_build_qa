@@ -67,7 +67,7 @@ class QAGenerator:
 6. 如果文档中没有某类型的内容，可以自主调整问题类型
 
 【文档内容】：
-{content[:50000]}
+{content}
 
 请仅返回JSON格式的问题列表，每个问题包含'question'和'type'字段：
 [
@@ -106,89 +106,9 @@ class QAGenerator:
    - 如果文档信息不足，说明已知部分即可
 
 【参考文档】：
-{content[:50000]}
+{content}
 
 请直接返回详细的答案内容（不需要JSON格式，直接返回答案文本）："""
-
-    def _prepare_qa_prompt(self, content, num_pairs, metadata=None):
-        """准备问答生成的提示词
-
-        Args:
-            content (str): PDF内容
-            num_pairs (int): 问答对数量
-            metadata (dict): PDF元数据
-
-        Returns:
-            str: 完整提示词
-        """
-        logger.info(f"准备问答提示词: num_pairs={num_pairs}")
-        logger.info(f"原始PDF内容长度: {len(content)} 字符")
-
-        # 获取模板
-        template = self._get_prompt_template(num_pairs, metadata)
-        logger.info(f"模板长度: {len(template)} 字符")
-
-        # 确保content不为None
-        if content is None:
-            logger.warning("PDF内容为None，使用空字符串替代")
-            content = ""
-
-        # 截断内容
-        content_to_use = content[:50000]
-        if len(content) > 50000:
-            logger.info(f"PDF内容超过50000字符，已截断，原始长度: {len(content)}")
-
-        # 确保有内容用于替换
-        if not content_to_use:
-            logger.warning("PDF内容为空，替换后提示词可能无效")
-
-        # 检查模板中的占位符类型
-        if "{content[:50000]}" in template:
-            logger.info("检测到模板使用 {content[:50000]} 占位符")
-            prompt = template.replace("{content[:50000]}", content_to_use)
-        elif "{content}" in template:
-            logger.info("检测到模板使用 {content} 占位符")
-            prompt = template.replace("{content}", content_to_use)
-        else:
-            # 如果都找不到，尝试直接在内容标记后插入
-            content_marker = "【内容】："
-            if content_marker in template:
-                logger.info(f"使用内容标记 {content_marker} 进行拆分替换")
-                parts = template.split(content_marker)
-                if len(parts) >= 2:
-                    before = parts[0] + content_marker + "\n"
-                    after_parts = parts[1].split("\n", 1)
-                    if len(after_parts) > 1:
-                        after = "\n" + after_parts[1]
-                    else:
-                        after = ""
-                    prompt = before + content_to_use + after
-                else:
-                    logger.warning("无法拆分模板，使用原始模板")
-                    prompt = template
-            else:
-                logger.warning("未找到任何占位符，使用原始模板")
-                prompt = template
-
-        logger.info(f"替换后的提示词长度: {len(prompt)} 字符")
-
-        # 检查替换是否成功
-        if "{content" in prompt:
-            logger.warning("警告: 可能未成功替换占位符")
-
-        # 验证内容样本是否在提示词中
-        if content_to_use:
-            content_sample = content_to_use[:30]
-            if content_sample in prompt:
-                logger.info("验证成功: PDF内容已包含在提示词中")
-                start_pos = prompt.find(content_sample)
-                context_sample = prompt[max(
-                    0, start_pos-10):min(len(prompt), start_pos+50)]
-                logger.info(f"内容示例: ...{context_sample}...")
-            else:
-                logger.warning("警告: 无法在提示词中找到PDF内容样本")
-
-        return prompt
 
     def _generate_questions(self, content, num_questions, metadata=None):
         """
@@ -395,7 +315,3 @@ class QAGenerator:
                 logger.warning(f"  - {failed_file}")
 
         return results, self.failed_files
-
-    def get_failed_files(self):
-        """获取处理失败的文件列表"""
-        return self.failed_files

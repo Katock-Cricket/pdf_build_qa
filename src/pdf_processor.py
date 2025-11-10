@@ -211,14 +211,14 @@ class PDFProcessor:
                 clip=(x0, y0, x1, y1), matrix=fitz.Matrix(2, 2))
             img_bytes = pix.tobytes("png")
             img = Image.open(io.BytesIO(img_bytes))
-            logger.info(f"准备OCR识别公式，图像大小: {img.size}")
+            # logger.info(f"准备OCR识别公式，图像大小: {img.size}")
 
             # 使用LatexOCR识别公式
             try:
                 latex = self.latex_ocr(img)
                 if latex and len(latex) > 5:  # 确保有意义的输出
                     formulas.append((bbox, latex))
-                    logger.info(f"✓ 成功识别公式: {latex[:50]}...")
+                    # logger.info(f"✓ 成功识别公式: {latex[:50]}...")
             except Exception as e:
                 logger.debug(f"公式识别失败: {str(e)}")
                 continue
