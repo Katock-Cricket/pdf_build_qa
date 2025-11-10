@@ -49,7 +49,6 @@ class ExcelWriter:
                     data.append({
                         'question': qa_pair.get('question', ''),
                         'answer': qa_pair.get('answer', ''),
-                        'level': qa_pair.get('level', 'basic'),
                         'source': source,
                         'doc_title': doc_title
                     })
@@ -66,13 +65,6 @@ class ExcelWriter:
             with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
                 # 所有问答对
                 df.to_excel(writer, sheet_name='全部问答对', index=False)
-                
-                # 按级别分组
-                for level in ['basic', 'intermediate', 'advanced']:
-                    level_df = df[df['level'] == level]
-                    if not level_df.empty:
-                        sheet_name = '基础问答' if level == 'basic' else '中级问答' if level == 'intermediate' else '高级问答'
-                        level_df.to_excel(writer, sheet_name=sheet_name, index=False)
                 
                 # 按来源文件分组
                 source_grouped = df.groupby('source')
@@ -107,11 +99,6 @@ class ExcelWriter:
             stats = {
                 "total_documents": len(qa_pairs_list),
                 "total_qa_pairs": len(data),
-                "level_counts": {
-                    "basic": len(df[df['level'] == 'basic']),
-                    "intermediate": len(df[df['level'] == 'intermediate']),
-                    "advanced": len(df[df['level'] == 'advanced'])
-                },
                 "source_counts": df.groupby('source').size().to_dict()
             }
             

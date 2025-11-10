@@ -44,17 +44,17 @@ def parse_arguments():
     parser.add_argument('--max_workers', type=int, default=1,
                         help='最大并行处理的文件数 (默认: 3)')
 
-    parser.add_argument('--api_retries', type=int, default=1,
+    parser.add_argument('--api_retries', type=int, default=3,
                         help='API调用失败时的最大重试次数 (默认: 3)')
 
-    parser.add_argument('--retry_delay', type=int, default=1,
+    parser.add_argument('--retry_delay', type=int, default=2,
                         help='API重试间隔时间(秒) (默认: 2)')
-
-    parser.add_argument('--qa_level', type=str, choices=['basic', 'intermediate', 'advanced', 'all'],
-                        default='all', help='问答对级别 (默认: all - 生成所有级别)')
 
     parser.add_argument('--use_latex_ocr', action='store_true', default=True,
                         help='启用LaTeX公式OCR识别 (默认: 启用)')
+
+    parser.add_argument('--answer_workers', type=int, default=5,
+                        help='答案生成的并行线程数 (默认: 5)')
 
     parser.add_argument('--model', type=str, default=None,
                         help='指定DeepSeek模型 (默认: 使用.env中的MODEL_NAME或deepseek-chat)')
@@ -74,9 +74,6 @@ def main():
     if args.model:
         os.environ["MODEL_NAME"] = args.model
 
-    # 处理qa_level参数
-    qa_level = None if args.qa_level == 'all' else args.qa_level
-
     try:
         logger.info("开始执行增强型PDF问答生成器")
 
@@ -93,8 +90,8 @@ def main():
             max_workers=args.max_workers,
             api_max_retries=args.api_retries,
             api_retry_delay=args.retry_delay,
-            qa_level=qa_level,
-            use_latex_ocr=args.use_latex_ocr
+            use_latex_ocr=args.use_latex_ocr,
+            answer_max_workers=args.answer_workers
         )
 
         # 初始化Excel写入器

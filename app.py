@@ -200,7 +200,6 @@ def process_file():
     filename = data.get('filename')
     params = {
         'num_qa': int(data.get('num_qa', 10)),
-        'qa_level': data.get('qa_level', 'all'),
         'use_latex_ocr': data.get('use_latex_ocr', False),
         'max_workers': int(data.get('max_workers', 3)),
         'api_retries': int(data.get('api_retries', 3)),
@@ -272,7 +271,6 @@ def process_batch():
     # 准备参数
     params = {
         'num_qa': int(data.get('num_qa', 10)),
-        'qa_level': data.get('qa_level', 'all'),
         'use_latex_ocr': data.get('use_latex_ocr', False),
         'max_workers': int(data.get('max_workers', 3)),
         'api_retries': int(data.get('api_retries', 3)),
@@ -343,7 +341,7 @@ def process_pdf_task(task_id, filepath, params):
         
         # 记录处理文件信息
         logger.info(f"开始处理PDF文件: {filepath}")
-        logger.info(f"处理参数: qa_level={params['qa_level']}, num_qa={params['num_qa']}, use_latex_ocr={params['use_latex_ocr']}")
+        logger.info(f"处理参数: num_qa={params['num_qa']}, use_latex_ocr={params['use_latex_ocr']}")
         
         # 如果指定了模型，设置环境变量
         if params['model']:
@@ -355,9 +353,6 @@ def process_pdf_task(task_id, filepath, params):
             
             if 'api_url' in params and params['api_url']:
                 os.environ["DEEPSEEK_API_URL"] = params['api_url']
-        
-        # 处理qa_level参数
-        qa_level = None if params['qa_level'] == 'all' else params['qa_level']
         
         # 创建临时目录存放单个PDF
         temp_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
@@ -379,8 +374,8 @@ def process_pdf_task(task_id, filepath, params):
             max_workers=1,  # 只处理一个文件不需要并行
             api_max_retries=params['api_retries'],
             api_retry_delay=params['retry_delay'],
-            qa_level=qa_level,
-            use_latex_ocr=params['use_latex_ocr']
+            use_latex_ocr=params['use_latex_ocr'],
+            answer_max_workers=5  # 答案生成并行数
         )
         
         # 添加Monkey Patch来记录提示词构建过程
@@ -534,7 +529,7 @@ def process_pdf_batch_task(task_id, params):
         # 记录批处理信息
         logger.info(f"开始批量处理 {total_files} 个PDF文件, 目录: {batch_dir}")
         logger.info(f"PDF文件列表: {', '.join(pdf_files)}")
-        logger.info(f"处理参数: qa_level={params['qa_level']}, num_qa={params['num_qa']}, use_latex_ocr={params['use_latex_ocr']}, max_workers={params['max_workers']}")
+        logger.info(f"处理参数: num_qa={params['num_qa']}, use_latex_ocr={params['use_latex_ocr']}, max_workers={params['max_workers']}")
         
         tasks[task_id]["message"] = f"正在准备批量处理 {total_files} 个PDF文件..."
         tasks[task_id]["progress"] = 10
@@ -551,9 +546,6 @@ def process_pdf_batch_task(task_id, params):
             if 'api_url' in params and params['api_url']:
                 os.environ["DEEPSEEK_API_URL"] = params['api_url']
         
-        # 处理qa_level参数
-        qa_level = None if params['qa_level'] == 'all' else params['qa_level']
-        
         tasks[task_id]["progress"] = 30
         tasks[task_id]["message"] = "正在初始化问答生成器..."
         save_tasks()  # 保存任务状态更新
@@ -565,8 +557,8 @@ def process_pdf_batch_task(task_id, params):
             max_workers=params['max_workers'],
             api_max_retries=params['api_retries'],
             api_retry_delay=params['retry_delay'],
-            qa_level=qa_level,
-            use_latex_ocr=params['use_latex_ocr']
+            use_latex_ocr=params['use_latex_ocr'],
+            answer_max_workers=5  # 答案生成并行数
         )
         
         # 添加Monkey Patch来记录PDF处理过程
@@ -698,7 +690,6 @@ def process_pdf_batch_task(task_id, params):
             "total_qa_pairs": total_qa_pairs,
             "configuration": {
                 "num_qa": params['num_qa'],
-                "qa_level": params['qa_level'],
                 "use_latex_ocr": params['use_latex_ocr'],
                 "max_workers": params['max_workers']
             },

@@ -195,8 +195,6 @@ class PDFProcessor:
             if not self._is_likely_formula(block):
                 continue
 
-            logger.info(f"检测到可能的公式块: {block}")
-
             # 获取区域坐标
             bbox = block["bbox"]
             x0, y0, x1, y1 = bbox
@@ -218,7 +216,6 @@ class PDFProcessor:
             # 使用LatexOCR识别公式
             try:
                 latex = self.latex_ocr(img)
-                logger.info(f"识别结果: {latex}")
                 if latex and len(latex) > 5:  # 确保有意义的输出
                     formulas.append((bbox, latex))
                     logger.info(f"✓ 成功识别公式: {latex[:50]}...")

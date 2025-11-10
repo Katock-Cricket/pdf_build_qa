@@ -8,178 +8,140 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .pdf_processor import PDFProcessor
 from .deepseek_client import DeepSeekClient
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 class QAGenerator:
     """问答生成器类"""
-    
-    # 定义问答等级
-    LEVEL_BASIC = "basic"      # 基础级别，适合初学者
-    LEVEL_INTERMEDIATE = "intermediate"  # 中级水平，适合有一定基础的学习者
-    LEVEL_ADVANCED = "advanced"     # 高级水平，适合深入研究的学者
-    
-    def __init__(self, pdf_dir="pdf_files", num_qa_pairs=20, max_workers=3, 
-                 api_max_retries=3, api_retry_delay=2, qa_level=None, 
-                 use_latex_ocr=True):
+
+    def __init__(self, pdf_dir="pdf_files", num_qa_pairs=20, max_workers=3,
+                 api_max_retries=3, api_retry_delay=2,
+                 use_latex_ocr=True, answer_max_workers=5):
         """
         初始化问答生成器
-        
+
         Args:
             pdf_dir (str): PDF文件目录
             num_qa_pairs (int): 每个PDF生成的问答对数量
             max_workers (int): 最大并行处理的文件数
             api_max_retries (int): API调用最大重试次数
             api_retry_delay (int): API调用重试间隔(秒)
-            qa_level (str): 问答对级别 (basic/intermediate/advanced)
             use_latex_ocr (bool): 是否使用LaTeX OCR
+            answer_max_workers (int): 答案生成的并行线程数（默认5）
         """
         self.pdf_processor = PDFProcessor(pdf_dir, use_latex_ocr)
-        self.deepseek_client = DeepSeekClient(max_retries=api_max_retries, retry_delay=api_retry_delay)
+        self.deepseek_client = DeepSeekClient(
+            max_retries=api_max_retries, retry_delay=api_retry_delay)
         self.num_qa_pairs = num_qa_pairs
         self.max_workers = max_workers
+        self.answer_max_workers = answer_max_workers
         self.failed_files = []  # 用于记录处理失败的文件
-        
-        # 设置问答等级，默认生成所有级别
-        self.qa_level = qa_level
-        
-        logger.info(f"问答生成器初始化，目录: {pdf_dir}，每个PDF生成 {num_qa_pairs} 个问答对，级别: {qa_level or '全部'}")
-    
-    def _get_prompt_template(self, level, num_pairs, metadata=None):
-        """
-        获取指定级别的提示模板
-        
-        Args:
-            level (str): 问答级别
-            num_pairs (int): 需要生成的问答对数量
-            metadata (dict): PDF元数据，包含标题、作者等
-            
-        Returns:
-            str: 提示模板
-        """
-        # 提取文档标题，如果有的话
-        title = ""
-        if metadata and metadata.get("title"):
-            title = metadata.get("title")
-        
-        # 基础级别：简单的问答，适合初学者
-        if level == self.LEVEL_BASIC:
-            return f"""你是一位资深的教育工作者，需要为初学者生成{num_pairs}个基础级别的中文问答对，涵盖以下学术内容的基本概念和简单应用。
 
-【要求】：
-1. 问题应该关注基础概念、定义和简单原理，适合初学者理解
-2. 回答应该简明扼要，使用通俗易懂的语言，避免过多专业术语
-3. 问答难度相当于本科一年级或入门水平
-4. 确保问题和回答清晰明了，不要过于复杂
-5. 每个问题都必须提及论文的标题或主题
+        logger.info(
+            f"问答生成器初始化，目录: {pdf_dir}，每个PDF生成 {num_qa_pairs} 个问答对，答案生成并行数: {answer_max_workers}")
 
-【内容】：
-{{content[:50000]}}
+    def _get_question_generation_prompt(self, content, num_questions, metadata=None):
+        """生成问题列表的prompt模板"""
+        return f"""
+你是一位卫星互联网领域的资深研究员和博士导师，需要根据以下学术文献内容，提炼出{num_questions}个高质量的研究问题。
 
-请仅返回JSON格式，每个问答对包含'question'和'answer'字段：
+【角色定位】：
+你是卫星互联网领域的专家，精通卫星通信、信号处理、网络协议、轨道设计等相关技术。
+
+【问题类型指引】：
+建议但不限于以下类型的问题（请根据文档实际内容灵活选择）：
+1. 理论原理类：核心概念、基础理论、数学模型、物理原理
+2. 技术方法类：算法设计、实现方案、优化策略、关键技术
+3. 系统架构类：系统设计、模块组成、协议栈、接口定义
+4. 性能分析类：性能指标、复杂度分析、对比优势、适用场景
+5. 应用场景类：实际应用、工程实践、问题解决、未来展望
+
+【重要要求】：
+1. 问题必须基于文档内容，提取文档中真实存在的知识点
+2. 不要问"本文/该论文怎么样"这类针对论文本身的问题
+3. 问题应该是领域知识问题，而非论文工作评价
+4. 问题难度应达到博士或资深研究者水平
+5. 问题应该具有提炼能力，抓住核心要点
+6. 如果文档中没有某类型的内容，可以自主调整问题类型
+
+【文档内容】：
+{content[:50000]}
+
+请仅返回JSON格式的问题列表，每个问题包含'question'和'type'字段：
 [
-  {{"question": "问题1", "answer": "答案1", "level": "basic"}},
-  {{"question": "问题2", "answer": "答案2", "level": "basic"}}
+  {{"question": "问题1的具体内容", "type": "理论原理类"}},
+  {{"question": "问题2的具体内容", "type": "技术方法类"}},
+  ...
 ]"""
-        
-        # 中级级别：更深入的问答，需要一定的专业基础
-        elif level == self.LEVEL_INTERMEDIATE:
-            return f"""你是一位资深的大学教授，需要为有一定基础的学生生成{num_pairs}个中级难度的中文问答对，帮助他们深入理解以下学术内容。
 
-【要求】：
-1. 问题应关注概念间的联系、原理应用和中等复杂度的分析
-2. 回答应该全面且包含一定深度，但仍然保持清晰易懂
-3. 可以包含一些专业术语和理论框架的讨论
-4. 问答难度相当于高年级本科或硕士初级水平
-5. 引导学生思考"为什么"和"如何"的问题
-6. 每个问题都必须提及论文的标题或主题
+    def _get_answer_generation_prompt(self, question, content, metadata=None):
+        """生成单个答案的prompt模板"""
+        return f"""
+你是一位卫星互联网领域的资深研究员和博士导师，需要针对以下问题，基于提供的学术文献内容，给出一个详尽、专业、体系化的答案。
 
-【内容】：
-PDF_CONTENT_PLACEHOLDER
+【角色定位】：
+你是卫星互联网领域的专家，精通卫星通信、信号处理、网络协议、轨道设计等相关技术。
 
-请仅返回JSON格式，每个问答对包含'question'和'answer'字段：
-[
-  {{"question": "问题1", "answer": "答案1", "level": "intermediate"}},
-  {{"question": "问题2", "answer": "答案2", "level": "intermediate"}}
-]"""
-        
-        # 高级级别：深度分析和批判性思考的问答
-        elif level == self.LEVEL_ADVANCED:
-            return f"""你是一位资深的研究员和博士导师，需要为高级学者生成{num_pairs}个高级学术水平的中文问答对，基于以下学术内容进行深度探讨和批判性分析。
+【问题】：
+{question}
 
-【要求】：
-1. 问题应该触及理论深处，包含方法论分析、跨领域整合和研究局限性
-2. 鼓励批判性思考、创新视角和对现有研究的质疑
-3. 回答应该体现专家水平的深度与广度，包括多种观点和争议
-4. 可以讨论研究前沿和未解决的问题
-5. 问答难度相当于博士或资深研究者水平
-6. 应包含对相关理论体系和方法论的深入理解
-7. 每个问题都必须提及论文的标题或主题
+【答案要求】：
+1. **长度要求**：答案应至少500-800字，确保内容充分详尽
+2. **内容结构**：
+   - 首先给出清晰的定义或概念说明
+   - 详细阐述理论原理和技术机制
+   - 如涉及数学模型，给出公式推导和参数说明
+   - 提供技术细节和实现要点
+   - 必要时给出实例说明或应用场景
+   - 说明与相关技术的关系或对比
+3. **专业性要求**：
+   - 使用准确的学术术语和技术词汇
+   - 体现专家级的深度理解
+   - 答案应成体系化，有清晰的逻辑层次
+4. **准确性要求**：
+   - 答案必须基于提供的文档内容
+   - 不要编造文档中不存在的信息
+   - 如果文档信息不足，说明已知部分即可
 
-【内容】：
-PDF_CONTENT_PLACEHOLDER
+【参考文档】：
+{content[:50000]}
 
-请仅返回JSON格式，每个问答对包含'question'和'answer'字段：
-[
-  {{"question": "问题1", "answer": "答案1", "level": "advanced"}},
-  {{"question": "问题2", "answer": "答案2", "level": "advanced"}}
-]"""
-        
-        # 默认模板（同时包含不同级别的问答）
-        else:
-            return f"""你是一位科研与教育并重的学术专家，需要基于以下学术内容，生成三种不同难度级别的中文问答对，总共{num_pairs}个问答对（尽量平均分配到各级别）。
+请直接返回详细的答案内容（不需要JSON格式，直接返回答案文本）："""
 
-【要求】：
-1. 为每个问题标记难度级别：基础(basic)、中级(intermediate)或高级(advanced)
-2. 基础级问题：问题应该聚焦于基础概念、定义和简单原理，难度相当于本科一年级或入门水平，回答要简明扼要、使用通俗易懂的语言、避免过多专业术语，并且保证问题和回答都清晰易懂，不要过于复杂。
-3. 中级问题：问题应关注概念间的联系与原理应用，以中等复杂度进行分析，回答需兼具全面性和一定深度，适度使用专业术语和理论框架并保证清晰易懂，难度相当于高年级本科或硕士初级水平，引导学生思考"为什么"和"如何"的问题。
-4. 高级问题：问题应深入理论探讨，涵盖方法论分析、跨领域整合与研究局限性，鼓励批判性思考和创新视角，对现有研究提出质疑，回答需具备专家级深度与广度、涵盖多元观点和争议，能延伸至研究前沿与未解难题，难度相当于博士或资深研究者水平，并体现对相关理论体系与方法论的深入理解。
-5. 确保问答深度与标记的难度级别相符
-6. 每个问题都必须提及论文的标题或主题
-
-【内容】：
-PDF_CONTENT_PLACEHOLDER
-
-请仅返回JSON格式，每个问答对包含'question'、'answer'和'level'字段：
-[
-  {{"question": "基础问题...", "answer": "基础回答...", "level": "basic"}},
-  {{"question": "中级问题...", "answer": "中级回答...", "level": "intermediate"}},
-  {{"question": "高级问题...", "answer": "高级回答...", "level": "advanced"}}
-]"""
-    
-    def _prepare_qa_prompt(self, content, level, num_pairs, metadata=None):
+    def _prepare_qa_prompt(self, content, num_pairs, metadata=None):
         """准备问答生成的提示词
 
         Args:
             content (str): PDF内容
-            level (str): 问答级别
             num_pairs (int): 问答对数量
             metadata (dict): PDF元数据
 
         Returns:
             str: 完整提示词
         """
-        logger.info(f"准备问答提示词: level={level}, num_pairs={num_pairs}")
+        logger.info(f"准备问答提示词: num_pairs={num_pairs}")
         logger.info(f"原始PDF内容长度: {len(content)} 字符")
-        
+
         # 获取模板
-        template = self._get_prompt_template(level, num_pairs, metadata)
+        template = self._get_prompt_template(num_pairs, metadata)
         logger.info(f"模板长度: {len(template)} 字符")
-        
+
         # 确保content不为None
         if content is None:
             logger.warning("PDF内容为None，使用空字符串替代")
             content = ""
-        
+
         # 截断内容
         content_to_use = content[:50000]
         if len(content) > 50000:
             logger.info(f"PDF内容超过50000字符，已截断，原始长度: {len(content)}")
-        
+
         # 确保有内容用于替换
         if not content_to_use:
             logger.warning("PDF内容为空，替换后提示词可能无效")
-        
+
         # 检查模板中的占位符类型
         if "{content[:50000]}" in template:
             logger.info("检测到模板使用 {content[:50000]} 占位符")
@@ -207,110 +169,208 @@ PDF_CONTENT_PLACEHOLDER
             else:
                 logger.warning("未找到任何占位符，使用原始模板")
                 prompt = template
-        
+
         logger.info(f"替换后的提示词长度: {len(prompt)} 字符")
-        
+
         # 检查替换是否成功
         if "{content" in prompt:
             logger.warning("警告: 可能未成功替换占位符")
-        
+
         # 验证内容样本是否在提示词中
         if content_to_use:
             content_sample = content_to_use[:30]
             if content_sample in prompt:
                 logger.info("验证成功: PDF内容已包含在提示词中")
                 start_pos = prompt.find(content_sample)
-                context_sample = prompt[max(0, start_pos-10):min(len(prompt), start_pos+50)]
+                context_sample = prompt[max(
+                    0, start_pos-10):min(len(prompt), start_pos+50)]
                 logger.info(f"内容示例: ...{context_sample}...")
             else:
                 logger.warning("警告: 无法在提示词中找到PDF内容样本")
-        
+
         return prompt
-    
+
+    def _generate_questions(self, content, num_questions, metadata=None):
+        """
+        生成问题列表
+
+        Args:
+            content (str): PDF内容
+            num_questions (int): 问题数量
+            metadata (dict): PDF元数据
+
+        Returns:
+            list: 问题列表（字符串列表）
+        """
+        logger.info(f"开始生成 {num_questions} 个问题")
+
+        # 准备问题生成的提示词
+        prompt = self._get_question_generation_prompt(
+            content, num_questions, metadata)
+
+        # 调用API生成问题
+        questions = self.deepseek_client.generate_questions(
+            prompt, num_questions)
+
+        if questions:
+            logger.info(f"成功生成 {len(questions)} 个问题")
+        else:
+            logger.warning("问题生成失败")
+
+        return questions
+
+    def _generate_answer(self, question, content, metadata=None):
+        """
+        为单个问题生成答案
+
+        Args:
+            question (str): 问题
+            content (str): PDF内容
+            metadata (dict): PDF元数据
+
+        Returns:
+            str: 生成的答案
+        """
+        import time
+        start_time = time.time()
+
+        logger.info(f"开始生成问题的答案: {question[:50]}...")
+
+        # 准备答案生成的提示词
+        prompt = self._get_answer_generation_prompt(
+            question, content, metadata)
+
+        # 调用API生成答案
+        answer = self.deepseek_client.generate_single_answer(prompt)
+
+        elapsed_time = time.time() - start_time
+
+        if answer:
+            logger.info(
+                f"成功生成答案，长度: {len(answer)} 字符，耗时: {elapsed_time:.2f} 秒")
+        else:
+            logger.warning(f"答案生成失败，耗时: {elapsed_time:.2f} 秒")
+
+        return answer
+
     def process_pdf(self, pdf_path):
         """
-        处理单个PDF文件
-        
+        处理单个PDF文件（两阶段生成：先生成问题，再并行生成答案）
+
         Args:
             pdf_path (str): PDF文件路径
-            
+
         Returns:
             tuple: (问答对列表, 源文件名, 原始内容, 元数据, 是否成功)
         """
         filename = os.path.basename(pdf_path)
         try:
-            # 从PDF提取文本
-            content, filename, metadata = self.pdf_processor.extract_text_from_pdf(pdf_path)
-            
+            logger.info(f"========== 开始处理PDF文件: {filename} ==========")
+
+            # 第一步：从PDF提取文本
+            logger.info(f"[第1步] 从PDF提取文本")
+            content, filename, metadata = self.pdf_processor.extract_text_from_pdf(
+                pdf_path)
+
             if not content:
                 logger.warning(f"PDF文件 {filename} 没有提取到内容")
                 return [], filename, "", {}, False
-            
-            # 根据配置选择问答级别
-            if self.qa_level:
-                levels = [self.qa_level]
-            else:
-                levels = [None]  # 使用默认模板生成混合级别的问答对
-            
-            all_qa_pairs = []
-            
-            # 生成指定级别的问答对
-            for level in levels:
-                prompt = self._prepare_qa_prompt(content, level, self.num_qa_pairs, metadata)
-                
-                # 生成问答对
-                qa_pairs = self.deepseek_client.generate_qa_pairs(prompt, self.num_qa_pairs)
-                
-                if not qa_pairs:
-                    logger.warning(f"文件 {filename} 生成 {level or '混合'} 级别问答对失败")
-                    continue
-                    
-                # 确保每个问答对都有level字段
-                for qa in qa_pairs:
-                    if 'level' not in qa:
-                        # 如果特定单一级别，添加该级别
-                        if level:
-                            qa['level'] = level
-                        else:
-                            # 默认设为基础级别
-                            qa['level'] = self.LEVEL_BASIC
-                
-                all_qa_pairs.extend(qa_pairs)
-                logger.info(f"文件 {filename} 成功生成 {len(qa_pairs)} 个 {level or '混合'} 级别问答对")
-            
-            if not all_qa_pairs:
-                logger.warning(f"文件 {filename} 生成所有级别问答对均失败")
+
+            logger.info(f"[第1步] 成功提取文本，长度: {len(content)} 字符")
+
+            # 第二步：生成问题列表
+            logger.info(f"[第2步] 生成 {self.num_qa_pairs} 个问题")
+            questions = self._generate_questions(
+                content, self.num_qa_pairs, metadata)
+
+            if not questions:
+                logger.warning(f"文件 {filename} 生成问题失败")
                 return [], filename, content, metadata, False
-                
-            return all_qa_pairs, filename, content, metadata, True
-            
+
+            logger.info(f"[第2步] 成功生成 {len(questions)} 个问题")
+
+            # 第三步：使用线程池并行生成答案
+            logger.info(f"[第3步] 使用 {self.answer_max_workers} 个线程并行生成答案")
+            qa_pairs = []
+            failed_count = 0
+
+            with ThreadPoolExecutor(max_workers=self.answer_max_workers) as executor:
+                # 提交所有答案生成任务
+                future_to_question = {
+                    executor.submit(self._generate_answer, q, content, metadata): q
+                    for q in questions
+                }
+
+                # 收集结果
+                for future in as_completed(future_to_question):
+                    question = future_to_question[future]
+                    try:
+                        answer = future.result()
+                        if answer:
+                            qa_pairs.append({
+                                "question": question,
+                                "answer": answer
+                            })
+                        else:
+                            failed_count += 1
+                            logger.warning(
+                                f"问题答案生成失败（空答案）: {question[:50]}...")
+                    except Exception as e:
+                        failed_count += 1
+                        logger.error(
+                            f"生成问题答案时出现异常: {question[:50]}..., 错误: {str(e)}")
+
+            logger.info(
+                f"[第3步] 答案生成完成，成功: {len(qa_pairs)}, 失败: {failed_count}")
+
+            if not qa_pairs:
+                logger.warning(f"文件 {filename} 所有答案生成均失败")
+                return [], filename, content, metadata, False
+
+            # 计算统计信息
+            total_answer_length = sum(len(qa['answer']) for qa in qa_pairs)
+            avg_answer_length = total_answer_length / \
+                len(qa_pairs) if qa_pairs else 0
+
+            logger.info(f"========== 文件 {filename} 处理完成 ==========")
+            logger.info(f"统计信息:")
+            logger.info(f"  - 成功生成问答对: {len(qa_pairs)} 个")
+            logger.info(f"  - 平均答案长度: {avg_answer_length:.0f} 字符")
+            logger.info(
+                f"  - 最短答案: {min(len(qa['answer']) for qa in qa_pairs)} 字符")
+            logger.info(
+                f"  - 最长答案: {max(len(qa['answer']) for qa in qa_pairs)} 字符")
+
+            return qa_pairs, filename, content, metadata, True
+
         except Exception as e:
-            logger.error(f"处理PDF文件 {pdf_path} 时出错: {str(e)}")
+            logger.error(f"处理PDF文件 {pdf_path} 时出错: {str(e)}", exc_info=True)
             return [], filename, "", {}, False
-    
+
     def generate_qa_from_pdfs(self):
         """
         从所有PDF文件生成问答对
-        
+
         Returns:
             tuple: (问答对列表, 失败文件列表)
                   问答对列表: 每个元素是一个四元组 (问答对列表, 源文件名, 原始内容, 元数据)
                   失败文件列表: 处理失败的文件名列表
         """
         pdf_files = self.pdf_processor.get_pdf_files()
-        
+
         if not pdf_files:
             logger.warning("没有找到PDF文件")
             return [], []
-        
+
         results = []
         self.failed_files = []  # 重置失败文件列表
-        
+
         # 使用线程池并行处理PDF文件
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # 提交所有任务
-            future_to_pdf = {executor.submit(self.process_pdf, pdf): pdf for pdf in pdf_files}
-            
+            future_to_pdf = {executor.submit(
+                self.process_pdf, pdf): pdf for pdf in pdf_files}
+
             # 收集结果
             for future in as_completed(future_to_pdf):
                 pdf = future_to_pdf[future]
@@ -324,17 +384,18 @@ PDF_CONTENT_PLACEHOLDER
                 except Exception as e:
                     logger.error(f"获取文件 {pdf} 的处理结果时出错: {str(e)}")
                     self.failed_files.append(pdf_name)
-        
-        logger.info(f"共处理了 {len(pdf_files)} 个PDF文件，成功: {len(results)}，失败: {len(self.failed_files)}")
-        
+
+        logger.info(
+            f"共处理了 {len(pdf_files)} 个PDF文件，成功: {len(results)}，失败: {len(self.failed_files)}")
+
         # 打印处理失败的文件列表
         if self.failed_files:
             logger.warning("以下文件处理失败:")
             for failed_file in self.failed_files:
                 logger.warning(f"  - {failed_file}")
-        
+
         return results, self.failed_files
-    
+
     def get_failed_files(self):
         """获取处理失败的文件列表"""
         return self.failed_files
