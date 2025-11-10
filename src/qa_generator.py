@@ -18,7 +18,7 @@ class QAGenerator:
 
     def __init__(self, pdf_dir="pdf_files", num_qa_pairs=20, max_workers=3,
                  api_max_retries=3, api_retry_delay=2,
-                 use_latex_ocr=True, answer_max_workers=5):
+                 use_latex_ocr=True, answer_max_workers=5, excel_writer=None):
         """
         初始化问答生成器
 
@@ -30,6 +30,7 @@ class QAGenerator:
             api_retry_delay (int): API调用重试间隔(秒)
             use_latex_ocr (bool): 是否使用LaTeX OCR
             answer_max_workers (int): 答案生成的并行线程数（默认5）
+            excel_writer (ExcelWriter): Excel写入器实例，用于保存单个PDF结果
         """
         self.pdf_processor = PDFProcessor(pdf_dir, use_latex_ocr)
         self.deepseek_client = DeepSeekClient(
@@ -37,6 +38,7 @@ class QAGenerator:
         self.num_qa_pairs = num_qa_pairs
         self.max_workers = max_workers
         self.answer_max_workers = answer_max_workers
+        self.excel_writer = excel_writer  # 用于保存单个PDF结果
         self.failed_files = []  # 用于记录处理失败的文件
 
         logger.info(
@@ -125,6 +127,12 @@ class QAGenerator:
         logger.info(f"开始生成 {num_questions} 个问题")
 
         # 准备问题生成的提示词
+        div_num_q = int(len(content) / 2000)
+        # 如果按每2000字一个问题分出的问题数小于num_questions，则将num_questions设置为div_num_q
+        if div_num_q < num_questions:
+            num_questions = max(div_num_q, 1)
+            logger.warning(
+                f"按每2000字一个问题分出的问题数小于num_questions，将num_questions设置为{num_questions}")
         prompt = self._get_question_generation_prompt(
             content, num_questions, metadata)
 
@@ -154,7 +162,7 @@ class QAGenerator:
         import time
         start_time = time.time()
 
-        logger.info(f"开始生成问题的答案: {question[:50]}...")
+        # logger.info(f"开始生成问题的答案: {question[:50]}...")
 
         # 准备答案生成的提示词
         prompt = self._get_answer_generation_prompt(
@@ -166,8 +174,9 @@ class QAGenerator:
         elapsed_time = time.time() - start_time
 
         if answer:
-            logger.info(
-                f"成功生成答案，长度: {len(answer)} 字符，耗时: {elapsed_time:.2f} 秒")
+            # logger.info(
+            #     f"成功生成答案，长度: {len(answer)} 字符，耗时: {elapsed_time:.2f} 秒")
+            pass
         else:
             logger.warning(f"答案生成失败，耗时: {elapsed_time:.2f} 秒")
 
@@ -260,6 +269,13 @@ class QAGenerator:
                 f"  - 最短答案: {min(len(qa['answer']) for qa in qa_pairs)} 字符")
             logger.info(
                 f"  - 最长答案: {max(len(qa['answer']) for qa in qa_pairs)} 字符")
+
+            # 立即保存到单独的JSON文件
+            if self.excel_writer:
+                saved_path = self.excel_writer.save_single_pdf_qa(
+                    qa_pairs, filename, metadata)
+                if saved_path:
+                    logger.info(f"已保存到文件: {saved_path}")
 
             return qa_pairs, filename, content, metadata, True
 

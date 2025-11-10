@@ -58,7 +58,8 @@ class DeepSeekClient:
             attempts += 1
             try:
                 if attempts == 1:
-                    logger.info("开始调用DeepSeek API生成问答对")
+                    # logger.info("开始调用DeepSeek API生成问答对")
+                    pass
                 else:
                     logger.info(
                         f"重试调用DeepSeek API (第 {attempts-1}/{self.max_retries-1} 次重试)")
@@ -141,7 +142,8 @@ class DeepSeekClient:
             attempts += 1
             try:
                 if attempts == 1:
-                    logger.info(f"开始调用DeepSeek API生成 {num_questions} 个问题")
+                    # logger.info(f"开始调用DeepSeek API生成 {num_questions} 个问题")
+                    pass
                 else:
                     logger.info(
                         f"重试调用DeepSeek API生成问题 (第 {attempts-1}/{self.max_retries-1} 次重试)")
@@ -229,7 +231,8 @@ class DeepSeekClient:
             attempts += 1
             try:
                 if attempts == 1:
-                    logger.info("开始调用DeepSeek API生成答案")
+                    # logger.info("开始调用DeepSeek API生成答案")
+                    pass
                 else:
                     logger.info(
                         f"重试调用DeepSeek API生成答案 (第 {attempts-1}/{self.max_retries-1} 次重试)")

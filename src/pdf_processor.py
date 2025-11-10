@@ -64,9 +64,10 @@ class PDFProcessor:
         """
         pdf_files = []
         try:
-            for file in os.listdir(self.pdf_dir):
+            normalized_dir = os.path.normpath(self.pdf_dir)
+            for file in os.listdir(normalized_dir):
                 if file.lower().endswith('.pdf'):
-                    pdf_files.append(os.path.join(self.pdf_dir, file))
+                    pdf_files.append(os.path.join(normalized_dir, file))
             logger.info(f"找到 {len(pdf_files)} 个PDF文件")
             return pdf_files
         except Exception as e:
@@ -237,7 +238,9 @@ class PDFProcessor:
         """
         text = ""
         try:
-            with pdfplumber.open(pdf_path) as pdf:
+            # 确保使用绝对路径
+            abs_pdf_path = os.path.abspath(pdf_path)
+            with pdfplumber.open(abs_pdf_path) as pdf:
                 for page in pdf.pages:
                     page_text = page.extract_text(x_tolerance=1, y_tolerance=3)
                     if page_text:
@@ -261,8 +264,10 @@ class PDFProcessor:
         all_formulas = []
 
         try:
+            # 确保使用绝对路径（PyMuPDF对路径格式更敏感）
+            abs_pdf_path = os.path.abspath(pdf_path)
             # 打开PDF文档
-            doc = fitz.open(pdf_path)
+            doc = fitz.open(abs_pdf_path)
 
             for page_num in range(len(doc)):
                 page = doc[page_num]
@@ -350,6 +355,8 @@ class PDFProcessor:
             tuple: (增强文本内容, 文件名, 元数据)
         """
         try:
+            # 转换为绝对路径，确保所有PDF库都能正确访问
+            pdf_path = os.path.abspath(pdf_path)
             pdf_filename = os.path.basename(pdf_path)
             logger.info(f"开始增强处理PDF文件: {pdf_filename}")
 
