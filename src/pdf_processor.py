@@ -57,17 +57,18 @@ class PDFProcessor:
 
     def get_pdf_files(self):
         """
-        获取目录中所有的PDF文件
+        获取目录中所有的PDF文件（返回绝对路径）
 
         Returns:
-            list: PDF文件路径列表
+            list: PDF文件绝对路径列表
         """
         pdf_files = []
         try:
-            normalized_dir = os.path.normpath(self.pdf_dir)
+            normalized_dir = os.path.abspath(os.path.normpath(self.pdf_dir))
             for file in os.listdir(normalized_dir):
                 if file.lower().endswith('.pdf'):
-                    pdf_files.append(os.path.join(normalized_dir, file))
+                    abs_path = os.path.abspath(os.path.join(normalized_dir, file))
+                    pdf_files.append(abs_path)
             logger.info(f"找到 {len(pdf_files)} 个PDF文件")
             return pdf_files
         except Exception as e:

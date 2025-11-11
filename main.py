@@ -44,10 +44,10 @@ def parse_arguments():
     parser.add_argument('--max_workers', type=int, default=20,
                         help='最大并行处理的文件数 (默认: 3)')
 
-    parser.add_argument('--api_retries', type=int, default=3,
+    parser.add_argument('--api_retries', type=int, default=10,
                         help='API调用失败时的最大重试次数 (默认: 3)')
 
-    parser.add_argument('--retry_delay', type=int, default=2,
+    parser.add_argument('--retry_delay', type=int, default=4,
                         help='API重试间隔时间(秒) (默认: 2)')
 
     parser.add_argument('--use_latex_ocr', action='store_true', default=True,

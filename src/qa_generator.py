@@ -4,6 +4,7 @@
 import os
 import logging
 import json
+import glob
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .pdf_processor import PDFProcessor
 from .deepseek_client import DeepSeekClient
@@ -98,6 +99,7 @@ class QAGenerator:
    - 提供技术细节和实现要点
    - 必要时给出实例说明或应用场景
    - 说明与相关技术的关系或对比
+   - 直接给出答案，不要解释你是什么角色、基于什么文献。如果领域与卫星互联网无关，也直接作答，不要说“该领域与卫星互联网无关”。
 3. **专业性要求**：
    - 使用准确的学术术语和技术词汇
    - 体现专家级的深度理解
@@ -181,6 +183,44 @@ class QAGenerator:
             logger.warning(f"答案生成失败，耗时: {elapsed_time:.2f} 秒")
 
         return answer
+
+    def _is_pdf_processed(self, pdf_filename):
+        """
+        检查PDF文件是否已经处理过（通过检查输出目录中是否存在对应的JSON文件）
+
+        Args:
+            pdf_filename (str): PDF文件名（带扩展名）
+
+        Returns:
+            bool: 如果已处理过返回True，否则返回False
+        """
+        # 如果没有excel_writer，无法检查，返回False
+        if not self.excel_writer:
+            return False
+
+        output_dir = self.excel_writer.output_dir
+
+        # 检查输出目录是否存在
+        if not os.path.exists(output_dir):
+            return False
+
+        # 遍历输出目录中的所有JSON文件
+        json_files = glob.glob(os.path.join(output_dir, "*.json"))
+
+        for json_file in json_files:
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # 检查source字段是否匹配当前PDF文件名
+                    if 'source' in data and data['source'] == pdf_filename:
+                        logger.info(f"PDF文件 {pdf_filename} 已处理过（找到已存在的JSON文件: {os.path.basename(json_file)}）")
+                        return True
+            except Exception as e:
+                # 如果读取JSON文件失败，继续检查下一个文件
+                logger.debug(f"读取JSON文件 {json_file} 时出错: {e}")
+                continue
+
+        return False
 
     def process_pdf(self, pdf_path):
         """
@@ -298,14 +338,36 @@ class QAGenerator:
             logger.warning("没有找到PDF文件")
             return [], []
 
+        # 过滤掉已经处理过的PDF文件
+        pdf_files_to_process = []
+        skipped_files = []
+        
+        for pdf_file in pdf_files:
+            pdf_filename = os.path.basename(pdf_file)
+            if self._is_pdf_processed(pdf_filename):
+                skipped_files.append(pdf_filename)
+            else:
+                pdf_files_to_process.append(pdf_file)
+
+        if skipped_files:
+            logger.info(f"跳过 {len(skipped_files)} 个已处理的PDF文件:")
+            for skipped_file in skipped_files:
+                logger.info(f"  - {skipped_file}")
+
+        if not pdf_files_to_process:
+            logger.info("所有PDF文件都已处理过，无需重新处理")
+            return [], []
+
         results = []
         self.failed_files = []  # 重置失败文件列表
+
+        logger.info(f"开始处理 {len(pdf_files_to_process)} 个PDF文件（共 {len(pdf_files)} 个，跳过 {len(skipped_files)} 个）")
 
         # 使用线程池并行处理PDF文件
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # 提交所有任务
             future_to_pdf = {executor.submit(
-                self.process_pdf, pdf): pdf for pdf in pdf_files}
+                self.process_pdf, pdf): pdf for pdf in pdf_files_to_process}
 
             # 收集结果
             for future in as_completed(future_to_pdf):
@@ -322,7 +384,8 @@ class QAGenerator:
                     self.failed_files.append(pdf_name)
 
         logger.info(
-            f"共处理了 {len(pdf_files)} 个PDF文件，成功: {len(results)}，失败: {len(self.failed_files)}")
+            f"处理完成：共 {len(pdf_files)} 个PDF文件，跳过 {len(skipped_files)} 个已处理的文件，"
+            f"实际处理 {len(pdf_files_to_process)} 个，成功: {len(results)}，失败: {len(self.failed_files)}")
 
         # 打印处理失败的文件列表
         if self.failed_files:
