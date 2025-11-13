@@ -73,7 +73,7 @@ def post_process(qa_pairs):
 
 
 def main():
-    qa_dir = "./output"
+    qa_dir = "./output/pro"
     json_files = load_json_files(qa_dir)
 
     for json_file in json_files:

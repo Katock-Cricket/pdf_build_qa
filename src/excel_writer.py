@@ -86,7 +86,7 @@ class ExcelWriter:
             self._file_counter += 1
             return self._file_counter
 
-    def save_single_pdf_qa(self, qa_pairs, source, metadata):
+    def save_single_pdf_qa(self, qa_pairs, source, metadata, mode):
         """
         保存单个PDF的问答对到JSON文件（线程安全）
 
@@ -94,7 +94,7 @@ class ExcelWriter:
             qa_pairs (list): 问答对列表
             source (str): 源文件名
             metadata (dict): PDF元数据
-
+            mode (str): 模式: normal-正常模式生成大量较短的且相对常见基础的知识问答对, pro-专业模式生成少量但长篇的深入研讨问答对
         Returns:
             str: 保存的JSON文件路径，失败返回空字符串
         """
@@ -109,14 +109,12 @@ class ExcelWriter:
                 microsecond = datetime.now().microsecond
                 counter = self._get_unique_counter()
                 json_filename = f"{sanitized_name}_{timestamp}_{microsecond:06d}_{counter:04d}.json"
-
+                
                 # 使用绝对路径，确保多线程环境下路径一致
-                json_filepath = os.path.join(self.output_dir, json_filename)
-
-                # 验证输出目录仍然存在
-                if not os.path.exists(self.output_dir):
-                    os.makedirs(self.output_dir, exist_ok=True)
-                    logger.warning(f"输出目录不存在，已重新创建: {self.output_dir}")
+                output_dir = os.path.abspath(os.path.join(self.output_dir, mode))
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir, exist_ok=True)
+                json_filepath = os.path.join(output_dir, json_filename)
 
                 # 准备JSON数据
                 json_data = {

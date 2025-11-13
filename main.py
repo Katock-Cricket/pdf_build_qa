@@ -38,13 +38,13 @@ def parse_arguments():
     parser.add_argument('--output_dir', type=str, default='output',
                         help='输出目录 (默认: output)')
 
-    parser.add_argument('--num_qa', type=int, default=10,
-                        help='每个PDF生成的问答对数量 (默认: 10)')
+    parser.add_argument('--num_qa', type=int, default=15,
+                        help='每个PDF生成的问答对数量 (默认: 15)')
 
-    parser.add_argument('--max_workers', type=int, default=20,
+    parser.add_argument('--max_workers', type=int, default=5,
                         help='最大并行处理的文件数 (默认: 3)')
 
-    parser.add_argument('--api_retries', type=int, default=10,
+    parser.add_argument('--api_retries', type=int, default=5,
                         help='API调用失败时的最大重试次数 (默认: 3)')
 
     parser.add_argument('--retry_delay', type=int, default=4,
@@ -53,13 +53,31 @@ def parse_arguments():
     parser.add_argument('--use_latex_ocr', action='store_true', default=True,
                         help='启用LaTeX公式OCR识别 (默认: 启用)')
 
-    parser.add_argument('--answer_workers', type=int, default=10,
+    parser.add_argument('--answer_workers', type=int, default=15,
                         help='答案生成的并行线程数 (默认: 10)')
 
     parser.add_argument('--model', type=str, default=None,
                         help='指定DeepSeek模型 (默认: 使用.env中的MODEL_NAME或deepseek-chat)')
 
-    return parser.parse_args()
+    parser.add_argument('--extract-only', action='store_true', default=False,
+                        help='仅识别保存PDF内容为txt文件，不生成问答对')
+    
+    parser.add_argument('--from-txt', action='store_true', default=True,
+                        help='从txt文件生成问答对（从txt_dir目录读取txt文件）')
+    
+    parser.add_argument('--txt_dir', type=str, default='./txt_dir',
+                        help='txt文件目录 (默认: ./txt_dir)')
+
+    parser.add_argument('--mode', type=str, default='normal', choices=['normal', 'pro'], 
+                        help='模式: normal-正常模式生成大量较短的且相对常见基础的知识问答对, pro-专业模式生成少量但长篇的深入研讨问答对')
+
+    args = parser.parse_args()
+    
+    # 检查互斥参数
+    if args.extract_only and args.from_txt:
+        parser.error("--extract-only 和 --from-txt 不能同时使用")
+
+    return args
 
 
 def main():
@@ -75,68 +93,121 @@ def main():
         os.environ["MODEL_NAME"] = args.model
 
     try:
-        logger.info("开始执行增强型PDF问答生成器")
-
-        # 检查PDF目录是否存在
-        if not os.path.exists(args.pdf_dir):
-            logger.error(f"PDF目录不存在: {args.pdf_dir}")
-            print(f"错误: PDF目录不存在: {args.pdf_dir}")
+        # 根据参数选择执行模式
+        if args.extract_only:
+            # 仅识别模式：提取PDF内容并保存为txt文件
+            logger.info("开始执行PDF文本提取模式")
+            
+            # 检查PDF目录是否存在
+            if not os.path.exists(args.pdf_dir):
+                logger.error(f"PDF目录不存在: {args.pdf_dir}")
+                print(f"错误: PDF目录不存在: {args.pdf_dir}")
+                return
+            
+            # 初始化PDF处理器并执行提取
+            pdf_processor = PDFProcessor(args.pdf_dir, args.use_latex_ocr)
+            success_count, skip_count, failed_count = pdf_processor.extract_pdfs_to_txt(
+                txt_dir=args.txt_dir,
+                max_workers=args.max_workers
+            )
             return
+        
+        elif args.from_txt:
+            # 从txt生成问答对模式
+            logger.info("开始执行从txt文件生成问答对模式")
+            
+            # 检查txt目录是否存在
+            if not os.path.exists(args.txt_dir):
+                logger.error(f"txt目录不存在: {args.txt_dir}")
+                print(f"错误: txt目录不存在: {args.txt_dir}")
+                return
+            
+            # 初始化Excel写入器
+            excel_writer = ExcelWriter(output_dir=args.output_dir)
+            
+            # 初始化问答生成器（传入excel_writer，用于每个txt处理完后立即保存）
+            qa_generator = QAGenerator(
+                pdf_dir=args.pdf_dir,  # 这个参数在从txt模式中不会被使用，但需要传入
+                num_qa_pairs=args.num_qa,
+                max_workers=args.max_workers,
+                api_max_retries=args.api_retries,
+                api_retry_delay=args.retry_delay,
+                use_latex_ocr=args.use_latex_ocr,
+                answer_max_workers=args.answer_workers,
+                excel_writer=excel_writer,
+                mode=args.mode
+            )
+            
+            # 从txt文件生成问答对
+            qa_results, failed_files = qa_generator.generate_qa_from_txt_files(args.txt_dir)
+            
+        else:
+            # 默认模式：从PDF生成问答对
+            logger.info("开始执行增强型PDF问答生成器")
 
-        # 初始化Excel写入器
-        excel_writer = ExcelWriter(output_dir=args.output_dir)
+            # 检查PDF目录是否存在
+            if not os.path.exists(args.pdf_dir):
+                logger.error(f"PDF目录不存在: {args.pdf_dir}")
+                print(f"错误: PDF目录不存在: {args.pdf_dir}")
+                return
 
-        # 初始化问答生成器（传入excel_writer，用于每个PDF处理完后立即保存）
-        qa_generator = QAGenerator(
-            pdf_dir=args.pdf_dir,
-            num_qa_pairs=args.num_qa,
-            max_workers=args.max_workers,
-            api_max_retries=args.api_retries,
-            api_retry_delay=args.retry_delay,
-            use_latex_ocr=args.use_latex_ocr,
-            answer_max_workers=args.answer_workers,
-            excel_writer=excel_writer
-        )
+            # 初始化Excel写入器
+            excel_writer = ExcelWriter(output_dir=args.output_dir)
 
-        # 从PDF生成问答对（每个PDF处理完后会自动保存到单独的JSON文件）
-        qa_results, failed_files = qa_generator.generate_qa_from_pdfs()
+            # 初始化问答生成器（传入excel_writer，用于每个PDF处理完后立即保存）
+            qa_generator = QAGenerator(
+                pdf_dir=args.pdf_dir,
+                num_qa_pairs=args.num_qa,
+                max_workers=args.max_workers,
+                api_max_retries=args.api_retries,
+                api_retry_delay=args.retry_delay,
+                use_latex_ocr=args.use_latex_ocr,
+                answer_max_workers=args.answer_workers,
+                excel_writer=excel_writer,
+                mode=args.mode
+            )
 
-        if not qa_results:
-            logger.warning("没有生成任何问答对")
-            print("警告: 没有生成任何问答对")
+            # 从PDF生成问答对（每个PDF处理完后会自动保存到单独的JSON文件）
+            qa_results, failed_files = qa_generator.generate_qa_from_pdfs()
+        
+        # 处理问答对生成的结果（适用于--from-txt和默认模式）
+        if args.from_txt or not args.extract_only:
+            if not qa_results:
+                logger.warning("没有生成任何问答对")
+                print("警告: 没有生成任何问答对")
 
+                if failed_files:
+                    print(f"\n处理失败的文件 ({len(failed_files)}):")
+                    for file in failed_files:
+                        print(f"  - {file}")
+                return
+
+            logger.info(f"处理完成，每个PDF的结果已保存到 {args.output_dir} 目录下的单独JSON文件")
+            print(f"处理完成，每个PDF的结果已保存到 {args.output_dir} 目录下的单独JSON文件")
+
+            # 保存失败文件列表到单独的文本文件
             if failed_files:
+                failed_files_log = os.path.join(
+                    args.output_dir, "failed_files.txt")
+                with open(failed_files_log, "w", encoding="utf-8") as f:
+                    f.write(f"处理失败的文件列表 ({len(failed_files)}):\n")
+                    for file in failed_files:
+                        f.write(f"{file}\n")
+
                 print(f"\n处理失败的文件 ({len(failed_files)}):")
                 for file in failed_files:
                     print(f"  - {file}")
-            return
+                print(f"失败文件列表已保存到: {failed_files_log}")
 
-        logger.info(f"处理完成，每个PDF的结果已保存到 {args.output_dir} 目录下的单独JSON文件")
-        print(f"处理完成，每个PDF的结果已保存到 {args.output_dir} 目录下的单独JSON文件")
-
-        # 保存失败文件列表到单独的文本文件
-        if failed_files:
-            failed_files_log = os.path.join(
-                args.output_dir, "failed_files.txt")
-            with open(failed_files_log, "w", encoding="utf-8") as f:
-                f.write(f"处理失败的文件列表 ({len(failed_files)}):\n")
-                for file in failed_files:
-                    f.write(f"{file}\n")
-
-            print(f"\n处理失败的文件 ({len(failed_files)}):")
-            for file in failed_files:
-                print(f"  - {file}")
-            print(f"失败文件列表已保存到: {failed_files_log}")
-
-        # 打印统计信息
-        total_qa_pairs = sum(len(qa_pairs)
-                             for qa_pairs, _, _, _ in qa_results)
-        print(f"\n处理统计:")
-        print(f"- 成功处理文件数: {len(qa_results)}")
-        print(f"- 生成问答对总数: {total_qa_pairs}")
-        print(f"- 失败文件数: {len(failed_files)}")
-        print(f"\n每个PDF的问答对已保存为单独的JSON文件，文件名基于原PDF名称。")
-        print(f"所有结果文件位于: {os.path.abspath(args.output_dir)}")
+            # 打印统计信息
+            total_qa_pairs = sum(len(qa_pairs)
+                                 for qa_pairs, _, _, _ in qa_results)
+            print(f"\n处理统计:")
+            print(f"- 成功处理文件数: {len(qa_results)}")
+            print(f"- 生成问答对总数: {total_qa_pairs}")
+            print(f"- 失败文件数: {len(failed_files)}")
+            print(f"\n每个PDF的问答对已保存为单独的JSON文件，文件名基于原PDF名称。")
+            print(f"所有结果文件位于: {os.path.abspath(args.output_dir)}")
 
     except Exception as e:
         logger.error(f"执行过程中发生错误: {str(e)}", exc_info=True)

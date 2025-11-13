@@ -12,6 +12,7 @@ import pdfplumber
 import fitz  # PyMuPDF
 from pix2tex.cli import LatexOCR
 from munch import Munch
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -410,3 +411,109 @@ class PDFProcessor:
         except Exception as e:
             logger.error(f"从PDF文件 {pdf_path} 提取文本时出错: {str(e)}")
             return "", os.path.basename(pdf_path), {}
+
+    def extract_pdfs_to_txt(self, txt_dir, max_workers=3):
+        """
+        提取PDF内容并保存为txt文件
+        
+        Args:
+            txt_dir (str): txt文件保存目录
+            max_workers (int): 最大并行处理的文件数
+        
+        Returns:
+            tuple: (成功数, 跳过数, 失败数)
+        """
+        # 确保txt目录存在
+        if not os.path.exists(txt_dir):
+            os.makedirs(txt_dir, exist_ok=True)
+            logger.info(f"创建txt目录: {txt_dir}")
+        
+        pdf_files = self.get_pdf_files()
+        
+        if not pdf_files:
+            logger.warning("没有找到PDF文件")
+            print("警告: 没有找到PDF文件")
+            return 0, 0, 0
+
+        txt_files = []
+        # 生成对应的txt文件名（去除.pdf扩展名，添加.txt）
+        for pdf_file in pdf_files:
+            pdf_filename = os.path.basename(pdf_file)
+            txt_filename = os.path.splitext(pdf_filename)[0] + '.txt'
+            txt_files.append(os.path.abspath(os.path.join(txt_dir, txt_filename)))
+
+        logger.info(f"找到 {len(pdf_files)} 个PDF文件，开始提取文本...")
+        print(f"找到 {len(pdf_files)} 个PDF文件，开始提取文本...")
+        
+        success_count = 0
+        skip_count = 0
+        failed_count = 0
+        failed_files = []
+        
+        def process_single_pdf(pdf_path, txt_filepath):
+            """处理单个PDF文件"""
+            pdf_filename = os.path.basename(pdf_path)
+            
+            # 检查txt文件是否已存在
+            if os.path.exists(txt_filepath):
+                logger.info(f"跳过已存在的文件: {txt_filepath}")
+                return 'skip', pdf_filename
+            
+            try:
+                # 提取文本
+                content, _, metadata = self.extract_text_from_pdf(pdf_path)
+                
+                if not content:
+                    logger.warning(f"PDF文件 {pdf_filename} 没有提取到内容")
+                    return 'failed', pdf_filename
+                
+                # 保存到txt文件
+                with open(txt_filepath, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                logger.info(f"成功提取并保存: {txt_filepath} (长度: {len(content)} 字符)")
+                return 'success', pdf_filename
+                
+            except Exception as e:
+                logger.error(f"处理PDF文件 {pdf_path} 时出错: {str(e)}", exc_info=True)
+                return 'failed', pdf_filename
+        
+        # 使用线程池并行处理
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_pdf = {
+                executor.submit(process_single_pdf, pdf, txt): pdf for pdf, txt in zip(pdf_files, txt_files)
+            }
+            
+            # 收集结果
+            for future in as_completed(future_to_pdf):
+                pdf = future_to_pdf[future]
+                try:
+                    status, filename = future.result()
+                    if status == 'success':
+                        success_count += 1
+                    elif status == 'skip':
+                        skip_count += 1
+                    else:
+                        failed_count += 1
+                        failed_files.append(filename)
+                except Exception as e:
+                    logger.error(f"获取文件 {pdf} 的处理结果时出错: {str(e)}")
+                    failed_count += 1
+                    failed_files.append(os.path.basename(pdf))
+        
+        # 打印统计信息
+        logger.info(f"提取完成: 成功 {success_count}, 跳过 {skip_count}, 失败 {failed_count}")
+        print(f"\n提取统计:")
+        print(f"- 成功: {success_count} 个文件")
+        print(f"- 跳过: {skip_count} 个文件")
+        print(f"- 失败: {failed_count} 个文件")
+        
+        if failed_files:
+            print(f"\n失败的文件:")
+            for file in failed_files:
+                print(f"  - {file}")
+        
+        print(f"\n所有txt文件已保存到: {os.path.abspath(txt_dir)}")
+        
+        return success_count, skip_count, failed_count

@@ -71,7 +71,7 @@ class DeepSeekClient:
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=8000  # 增加token数量以支持更复杂的回答
+                    max_tokens=10000  # 增加token数量以支持更复杂的回答
                 )
 
                 # 获取响应文本
