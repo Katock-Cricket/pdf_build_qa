@@ -12,34 +12,34 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-class DeepSeekClient:
-    """DeepSeek API客户端类（使用OpenAI SDK）"""
+class LLMClient:
+    """LLM API客户端类（使用OpenAI SDK）"""
 
     def __init__(self, max_retries=3, retry_delay=2):
         """
-        初始化DeepSeek API客户端
+        初始化LLM API客户端
 
         Args:
             max_retries (int): 最大重试次数
             retry_delay (int): 重试间隔时间(秒)
         """
-        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.api_key = os.getenv("API_KEY")
         self.api_base = os.getenv(
-            "DEEPSEEK_API_URL", "https://api.deepseek.com/v1")
+            "BASE_URL", "https://api.chatanywhere.tech/v1")
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
         if not self.api_key:
-            logger.error("未设置DEEPSEEK_API_KEY环境变量")
-            raise ValueError("请设置DEEPSEEK_API_KEY环境变量")
+            logger.error("未设置API_KEY环境变量")
+            raise ValueError("请设置API_KEY环境变量")
 
-        # 初始化OpenAI客户端，指向DeepSeek API
+        # 初始化OpenAI客户端，指向LLM API
         self.client = OpenAI(
             api_key=self.api_key,
             base_url=self.api_base
         )
 
-        logger.info("DeepSeek API客户端初始化完成")
+        logger.info("LLM API客户端初始化完成")
 
     def generate_qa_pairs(self, prompt, num_pairs=10):
         """
@@ -58,20 +58,20 @@ class DeepSeekClient:
             attempts += 1
             try:
                 if attempts == 1:
-                    # logger.info("开始调用DeepSeek API生成问答对")
+                    # logger.info("开始调用LLM API生成问答对")
                     pass
                 else:
                     logger.info(
-                        f"重试调用DeepSeek API (第 {attempts-1}/{self.max_retries-1} 次重试)")
+                        f"重试调用LLM API (第 {attempts-1}/{self.max_retries-1} 次重试)")
 
                 # 使用OpenAI SDK调用API
                 response = self.client.chat.completions.create(
-                    model=os.getenv("MODEL_NAME", "deepseek-chat"),
+                    model=os.getenv("MODEL_NAME", "deepseek-v3"),
                     messages=[
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=10000  # 增加token数量以支持更复杂的回答
+                    max_tokens=20000  # 增加token数量以支持更复杂的回答
                 )
 
                 # 获取响应文本
@@ -112,7 +112,7 @@ class DeepSeekClient:
                         # 继续重试
 
             except Exception as e:
-                logger.error(f"调用DeepSeek API生成问答对时出错: {str(e)}")
+                logger.error(f"调用LLM API生成问答对时出错: {str(e)}")
                 # 如果已经达到最大重试次数，则退出循环
                 if attempts >= self.max_retries:
                     break
@@ -123,7 +123,7 @@ class DeepSeekClient:
                 time.sleep(wait_time)
 
         # 如果所有重试都失败了
-        logger.error(f"经过 {self.max_retries} 次尝试后，仍然无法成功调用DeepSeek API")
+        logger.error(f"经过 {self.max_retries} 次尝试后，仍然无法成功调用LLM API")
         return []
 
     def generate_questions(self, prompt, num_questions=10):
@@ -142,11 +142,11 @@ class DeepSeekClient:
             attempts += 1
             try:
                 if attempts == 1:
-                    # logger.info(f"开始调用DeepSeek API生成 {num_questions} 个问题")
+                    # logger.info(f"开始调用LLM API生成 {num_questions} 个问题")
                     pass
                 else:
                     logger.info(
-                        f"重试调用DeepSeek API生成问题 (第 {attempts-1}/{self.max_retries-1} 次重试)")
+                        f"重试调用LLM API生成问题 (第 {attempts-1}/{self.max_retries-1} 次重试)")
 
                 # 使用OpenAI SDK调用API
                 response = self.client.chat.completions.create(
@@ -205,7 +205,7 @@ class DeepSeekClient:
                         logger.debug(f"API响应内容: {response_text[:200]}...")
 
             except Exception as e:
-                logger.error(f"调用DeepSeek API生成问题时出错: {str(e)}")
+                logger.error(f"调用LLM API生成问题时出错: {str(e)}")
                 if attempts >= self.max_retries:
                     break
 
@@ -231,11 +231,11 @@ class DeepSeekClient:
             attempts += 1
             try:
                 if attempts == 1:
-                    # logger.info("开始调用DeepSeek API生成答案")
+                    # logger.info("开始调用LLM API生成答案")
                     pass
                 else:
                     logger.info(
-                        f"重试调用DeepSeek API生成答案 (第 {attempts-1}/{self.max_retries-1} 次重试)")
+                        f"重试调用LLM API生成答案 (第 {attempts-1}/{self.max_retries-1} 次重试)")
 
                 # 使用OpenAI SDK调用API
                 response = self.client.chat.completions.create(
@@ -257,7 +257,7 @@ class DeepSeekClient:
                     logger.warning("API返回了空答案")
 
             except Exception as e:
-                logger.error(f"调用DeepSeek API生成答案时出错: {str(e)}")
+                logger.error(f"调用LLM API生成答案时出错: {str(e)}")
                 if attempts >= self.max_retries:
                     break
 

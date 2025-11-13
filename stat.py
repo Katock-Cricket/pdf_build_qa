@@ -153,7 +153,7 @@ def print_statistics(stats):
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='统计问答对的文档数、问题长度分布、答案长度分布')
-    parser.add_argument('--output_dir', type=str, default='output',
+    parser.add_argument('--output_dir', type=str, default='output/easy',
                         help='输出目录 (默认: output)')
     
     args = parser.parse_args()

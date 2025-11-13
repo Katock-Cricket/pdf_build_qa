@@ -7,7 +7,7 @@ import json
 import glob
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .pdf_processor import PDFProcessor
-from .deepseek_client import DeepSeekClient
+from .llm_client import LLMClient
 from .prompts import PromptTemplates
 
 logging.basicConfig(level=logging.INFO,
@@ -36,7 +36,7 @@ class QAGenerator:
             mode (str): 模式: normal-正常模式生成大量较短的且相对常见基础的知识问答对, pro-专业模式生成少量但长篇的深入研讨问答对
         """
         self.pdf_processor = PDFProcessor(pdf_dir, use_latex_ocr)
-        self.deepseek_client = DeepSeekClient(
+        self.llm_client = LLMClient(
             max_retries=api_max_retries, retry_delay=api_retry_delay)
         self.prompt_templates = PromptTemplates()  # 初始化提示词模板
         self.num_qa_pairs = num_qa_pairs
@@ -74,7 +74,7 @@ class QAGenerator:
             content, num_questions, metadata)
 
         # 调用API生成问题
-        questions = self.deepseek_client.generate_questions(
+        questions = self.llm_client.generate_questions(
             prompt, num_questions)
 
         if questions:
@@ -106,7 +106,7 @@ class QAGenerator:
             question, content, metadata)
 
         # 调用API生成答案
-        answer = self.deepseek_client.generate_single_answer(prompt)
+        answer = self.llm_client.generate_single_answer(prompt)
 
         elapsed_time = time.time() - start_time
 
@@ -274,11 +274,11 @@ class QAGenerator:
         try:
             # 计算问题数量限制（类似pro模式）
             num_questions = self.num_qa_pairs
-            div_num_q = int(len(content) / 500)
+            div_num_q = int(len(content) / 800)
             if div_num_q < num_questions:
                 num_questions = max(div_num_q, 1)
                 logger.warning(
-                    f"按每500字一个问题分出的问题数小于num_qa_pairs，将num_questions设置为{num_questions}")
+                    f"按每800字一个问题分出的问题数小于num_qa_pairs，将num_questions设置为{num_questions}")
 
             # 生成prompt
             logger.info(f"[Normal模式] 一次性生成 {num_questions} 个问答对")
@@ -286,7 +286,7 @@ class QAGenerator:
                 content, num_questions, metadata)
 
             # 调用API一次性生成所有问答对
-            qa_pairs = self.deepseek_client.generate_qa_pairs(prompt, num_questions)
+            qa_pairs = self.llm_client.generate_qa_pairs(prompt, num_questions)
 
             if not qa_pairs:
                 logger.warning(f"文件 {filename} 生成问答对失败")

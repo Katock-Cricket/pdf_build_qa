@@ -10,6 +10,7 @@ pix2tex
 numpy
 pillow
 torch
+torchvision
 transformers
 flask
 werkzeug

@@ -4,14 +4,14 @@
 """
 增强型PDF问答生成器主程序
 
-使用DeepSeek API从PDF文件生成多层次问答对，支持LaTeX公式提取，并保存到Excel文件
+使用LLM API从PDF文件生成多层次问答对，支持LaTeX公式提取，并保存到Excel文件
 """
 
 import os
 import argparse
 import logging
 from src.pdf_processor import PDFProcessor
-from src.deepseek_client import DeepSeekClient
+from src.llm_client import LLMClient
 from src.qa_generator import QAGenerator
 from src.excel_writer import ExcelWriter
 from dotenv import load_dotenv
@@ -38,7 +38,7 @@ def parse_arguments():
     parser.add_argument('--output_dir', type=str, default='output',
                         help='输出目录 (默认: output)')
 
-    parser.add_argument('--num_qa', type=int, default=15,
+    parser.add_argument('--num_qa', type=int, default=10,
                         help='每个PDF生成的问答对数量 (默认: 15)')
 
     parser.add_argument('--max_workers', type=int, default=5,
@@ -57,7 +57,7 @@ def parse_arguments():
                         help='答案生成的并行线程数 (默认: 10)')
 
     parser.add_argument('--model', type=str, default=None,
-                        help='指定DeepSeek模型 (默认: 使用.env中的MODEL_NAME或deepseek-chat)')
+                        help='指定LLM模型 (默认: 使用.env中的MODEL_NAME或llm-chat)')
 
     parser.add_argument('--extract-only', action='store_true', default=False,
                         help='仅识别保存PDF内容为txt文件，不生成问答对')
@@ -106,7 +106,7 @@ def main():
             
             # 初始化PDF处理器并执行提取
             pdf_processor = PDFProcessor(args.pdf_dir, args.use_latex_ocr)
-            success_count, skip_count, failed_count = pdf_processor.extract_pdfs_to_txt(
+            pdf_processor.extract_pdfs_to_txt(
                 txt_dir=args.txt_dir,
                 max_workers=args.max_workers
             )

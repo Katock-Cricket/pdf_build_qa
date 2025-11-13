@@ -14,6 +14,7 @@ load_json_files = stat_module.load_json_files
 def process_question(question):
     return question
 
+
 def process_answer(answer):
     # 如果ans以"好的"开头，则删除第一句话，即删除到第一个句号“。”
     if answer.startswith("好的"):
@@ -61,6 +62,7 @@ def process_answer(answer):
             answer = answer.lstrip("\n---\n")
             print(f"删除了“问题：”话术: {answer[:10]}...")
     return answer
+
 
 def post_process(qa_pairs):
     new_qa_pairs = []
